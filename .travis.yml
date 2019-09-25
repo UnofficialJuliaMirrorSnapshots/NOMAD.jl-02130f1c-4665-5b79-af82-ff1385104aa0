@@ -1,0 +1,29 @@
+language: julia
+
+dist: trusty
+
+os:
+  - linux
+  - osx
+
+julia:
+  - 1.1.0
+  - 1.2.0
+
+notifications:
+  email: false
+
+jobs:
+  include:
+    - stage: "Documentation"
+      julia: 1.2.0
+      os: linux
+      script:
+        - julia --project=docs/ -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd()));
+                                               Pkg.build("NOMAD");
+                                               Pkg.instantiate()'
+        - julia --project=docs/ docs/make.jl
+      after_success: skip
+
+after_success:
+- julia -e 'using Pkg; cd(Pkg.dir("NOMAD")); Pkg.add("Coverage"); using Coverage; Coveralls.submit(Coveralls.process_folder())'
