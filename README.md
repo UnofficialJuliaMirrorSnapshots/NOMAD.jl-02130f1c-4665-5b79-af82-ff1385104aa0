@@ -1,92 +1,66 @@
-# The NOMAD module for Julia v0.6
-This module provides a [Julia-language](http://julialang.org/) interface to the 
-free/open-source [NOMAD](https://www.gerad.ca/nomad/Project/Home.html) library 
-for nonlinear optimization of black-box functions. Currently only a limited set
-of features of [NOMAD](https://www.gerad.ca/nomad/Project/Home.html) is
-available through this interface. **Currently it works only for julia v0.6;
-if you wish to update it to later versions of Julia, please consider opening a PR.**
+# NOMAD.jl
+
+Documentation:
+[![](https://img.shields.io/badge/docs-dev-blue.svg)](https://ppascal97.github.io/NOMAD.jl/dev)
+
+Linux and macOS: [![Build Status](https://travis-ci.org/ppascal97/NOMAD.jl.svg?branch=master)](https://travis-ci.org/ppascal97/NOMAD.jl)
+
+Code coverage: [![Coverage Status](https://coveralls.io/repos/github/ppascal97/NOMAD.jl/badge.svg?branch=master)](https://coveralls.io/github/ppascal97/NOMAD.jl?branch=master)
+
+This package provides a Julia interface for NOMAD, which is a C++ implementation of the Mesh Adaptive Direct Search algorithm (MADS), designed for difficult blackbox optimization problems. These problems occur when the functions defining the objective and constraints are the result of costly computer simulations.
 
 ## Installation
 
-Currently the installation is only tested on Linux. Please adapt
-[deps/build.jl](deps/build.jl) for other platforms.
-
-Within Julia, you can install the NOMAD.jl package with the package manager: 
-`Pkg.add("NOMAD")`
-
-## Basic Usage
 ```julia
-using NOMAD
-function rosenbrock(x)
-    res = 0.
-    for i in 1:length(x) - 1
-    	res += 100 * (x[i+1] - x[i]^2)^2 + (1 - x[i])^2
+    pkg> add https://github.com/ppascal97/NOMAD.jl.git
+    pkg> test NOMAD
+```
+
+## Quick start
+
+Let's say you want to minimize some objective function :
+
+```julia
+    function f(x)
+        return x[1]^2 + x[2]^2
     end
-    res
-end
-ev = Evaluator(rosenbrock, [], 5)
-opt = Opt(ev, UPPER_BOUND = 10*ones(5), LOWER_BOUND = -10*ones(5), 
-          X0 = zeros(5), DISPLAY_DEGREE = 0)
-optimize(opt)
 ```
-The `Evaluator` takes an objective function `rosenbrock`, an array of
-constraints (the empty array `[]`), and the dimensionality of the problem `5`.
-`Opt` takes an evaluator `ev` and any number of keyword arguments that are
-allowed in NOMAD (c.f `NOMAD.help()`)
+
+while keeping some constraint inferior to 0 :
 
 ```julia
-using NOMAD
-NOMAD.help(:CONSTRAINTS)
-ev = Evaluator((x, y) -> - x^2 + (y - 1)^2, [(:EB, (x, y) -> x - y)], 2, vectorin = false)
-opt = Opt(ev, UPPER_BOUND = [5, 6], LOWER_BOUND = [-2, -6], X0 = [1, 2])
-optimize(opt)
+    function c(x)
+        return 1 - x[1]
+    end
 ```
-The array of constraints can contain functions (for which the default type
-`:PB` is assumed) or tuples of the form (type of constraint, function). The
-keyword argument `vectorin = false` (default `true`) is set to indicate that the
-functions provided in this examples do not take a vector as input but 2 scalar
-arguments.
+
+You first need to declare a function `eval(x::Vector{Float64})` that returns a *Vector{Float64}* containing the objective function and the constraint evaluated for `x`, along with two booleans.
 
 ```julia
-using NOMAD
-ev = Evaluator(x -> x[5], [(:PB, x -> (norm(x-1)^2 - 25)), (:EB, x -> 25 - norm(x + 1)^2)], 5)
-opt = Opt(ev, UPPER_BOUND = [5, 6, 7, Inf64, Inf64], LOWER_BOUND = -6*ones(5), 
-          X0 = zeros(5), MAX_BB_EVAL = 100, SEED = 11)
-optimize(opt)
+    function eval(x)
+        bb_outputs = [f(x),c(x)]
+        success = true
+        count_eval = true
+        return (success, count_eval, bb_outputs)
+    end
 ```
 
-## Using JuMP
-NOMAD implements the [MathProgBase
-interface](http://mathprogbasejl.readthedocs.org/en/latest/nlp.html) for
-nonlinear optimization, which means that it can be used interchangeably with
-other optimization packages from modeling packages like
-[JuMP](https://github.com/JuliaOpt/JuMP.jl).
+`success` is a boolean set to false if the evaluation should not be taken into account by NOMAD. Here, every evaluation will be considered as a success. `count_eval` is also a boolean, it decides weather the evaluation's counter will be incremented. Here, it is always equal to true so every evaluation will be counted.
+
+Then, create an object of type *nomadParameters* that will contain settings for the optimization. The classic constructor takes as arguments the initial point *x0* and the types of the outputs contained in `bb_outputs` (as a *Vector{String}*).
 
 ```julia
-using JuMP, NOMAD
-m = Model(solver = NOMAD.NOMADSolver(DISPLAY_DEGREE = 2, constrainttype = :EB))
-a1 = 2
-b1 = 0
-a2 = -1
-b2 = 1
-
-@variable(m, x1)
-@variable(m, x2 >= 0)
-
-@NLobjective(m, Min, sqrt(x2))
-@NLconstraint(m, x2 >= (a1*x1+b1)^3)
-@NLconstraint(m, x2 >= (a2*x1+b2)^3)
-
-setvalue(x1, 1.234)
-setvalue(x2, 5.678)
-
-status = solve(m)
-println("got ", getobjectivevalue(m), " at ", [getvalue(x1),getvalue(x2)])
+    param = nomadParameters([3,3],["OBJ","EB"])
+    param.lower_bound = [-5,-5]
+    param.upper_bound = [5,5]
 ```
 
-## Help on NOMAD Parameters		
+Here, first element of bb_outputs is the objective function (`f(x)`), second is a constraint treated with the Extreme Barrier method (`c(x)`). In this example, lower and upper bounds have been added but it is not compulsory.
+
+Now call the function `nomad()` with these arguments to launch a NOMAD optimization process.
 
 ```julia
-NOMAD.help()
-NOMAD.help(:UPPER_BOUND)
+    result = nomad(eval, param)
 ```
+
+The object of type *nomadResults* returned by `nomad()` contains information about the run.

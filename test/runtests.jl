@@ -1,5 +1,5 @@
 using NOMAD
-using Base.Test
+using Test
 
-# write your own tests here
-@test 1 == 2
+include("test_results_consistency.jl")
+include("optim_test.jl")
